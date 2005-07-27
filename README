@@ -1,0 +1,29 @@
+Data-ICal version 0.0.1
+
+Data::ICal is a straightforward generator for iCalendar (RFC 2445) files, such
+as those used in Apple's iCal.
+
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+
+
+DEPENDENCIES
+
+Class::Accessor
+
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2005, Best Practical Solutions LLC.
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
