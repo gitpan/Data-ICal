@@ -2,6 +2,7 @@ use warnings;
 use strict;
 
 package Data::ICal::Entry;
+use base qw/Class::Accessor/;
 use Data::ICal::Property;
 use Carp;
 
@@ -49,11 +50,9 @@ Creates a new entry object with no properties or sub-entries.
 
 sub new {
     my $class = shift;
-    my $self  = {
-        properties => {},
-        entries    => [],
-    };
-    bless $self, $class;
+    my $self = $class->SUPER::new;
+    $self->set(properties => {});
+    $self->set(entries => []);
     return $self;
 }
 
@@ -113,6 +112,8 @@ sub add_entry {
     my $entry = shift;
     push @{ $self->{entries} }, $entry;
 
+    $entry->vcal10( $self->vcal10 );
+
     return 1;
 }
 
@@ -122,10 +123,7 @@ Returns a reference to the array of subentries of this entry.
 
 =cut
 
-sub entries {
-    my $self = shift;
-    return $self->{'entries'};
-}
+__PACKAGE__->mk_ro_accessors('entries');
 
 =head2 properties
 
@@ -134,10 +132,7 @@ the values are array references containing L<Data::ICal::Property> objects.
 
 =cut
 
-sub properties {
-    my $self = shift;
-    return $self->{'properties'};
-}
+__PACKAGE__->mk_ro_accessors('properties');
 
 =head2 property
 
@@ -193,8 +188,10 @@ sub add_property {
 
     my ( $prop_value, $param_hash ) = @$val;
 
-    push @{ $self->properties->{$prop} },
-        Data::ICal::Property->new( $prop => $prop_value, $param_hash );
+    my $p = Data::ICal::Property->new( $prop => $prop_value, $param_hash );
+    $p->vcal10( $self-> vcal10 );
+    
+    push @{ $self->properties->{$prop} }, $p;
 }
 
 =head2 add_properties $propname1 => $propval1, [$propname2 => $propname2, ...]
@@ -344,6 +341,17 @@ Subclasses should override this method to provide the identifying type name of t
 =cut
 
 sub ical_entry_type {'UNDEFINED'}
+
+=head2 vcal10 [$bool]
+
+Gets or sets a boolean saying whether this entry should be interpreted as vCalendar
+1.0 (as opposed to iCalendar 2.0).  Generally, you can just set this on your
+main L<Data::ICal> object when you construct it; C<add_entry> automatically makes
+sure that sub-entries end up with the same value as their parents.
+
+=cut
+
+__PACKAGE__->mk_accessors('vcal10');
 
 =head2 header
 

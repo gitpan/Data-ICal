@@ -4,9 +4,11 @@ use strict;
 package Data::ICal;
 use base qw/Data::ICal::Entry/;
 
+use Class::ReturnValue;
+
 use Text::vFile::asData;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 use Carp;
 
@@ -56,16 +58,22 @@ methods applicable to L<Data::ICal>.
 
 =cut
 
-=head2 new [ data => $data, ] [ filename => $file ]
+=head2 new [ data => $data, ] [ filename => $file ], [ vcal10 => $bool ]
 
 Creates a new L<Data::ICal> object. 
 
 If it is given a filename or data argument is passed, then this parses the
-content of the file or string into the object; otherwise it just sets its
-C<VERSION> and C<PRODID> properties to "2.0" and the value of the C<product_id>
-method respectively.
+content of the file or string into the object.  If the C<vcal10> flag is passed,
+parses it according to vCalendar 1.0, not iCalendar 2.0; this in particular impacts
+the parsing of continuation lines in quoted-printable sections.
 
-Returns undef upon failure to open or parse the file or data.
+If a filename or data argument is not passed, this just sets its C<VERSION> and
+C<PRODID> properties to "2.0" (or "1.0" if the C<vcal10> flag is passed) and
+the value of the C<product_id> method respectively.
+
+Returns a false value upon failure to open or parse the file or data; this false
+value is a L<Class::ReturnValue> object and can be queried as to its 
+C<error_message>.
 
 =cut
 
@@ -73,24 +81,39 @@ sub new {
     my $class = shift;
     my $self  = $class->SUPER::new(@_);
 
-    if (@_) {
-        $self->parse(@_) || return;
+    my %args = (
+        filename => undef,
+        data     => undef,
+        vcal10   => 0,
+        @_
+    );
+
+    $self->vcal10($args{vcal10});
+
+    if (defined $args{filename} or defined $args{data}) {
+        # might return a Class::ReturnValue if parsing fails
+        return $self->parse(%args);
     } else {
         $self->add_properties(
-            version => '2.0',
+            version => ($self->vcal10 ? '1.0' : '2.0'),
             prodid  => $self->product_id,
         );
+        return $self;
     }
-    return $self;
 }
 
-=head2 parse [ data => $data, ] [ filename => $file ]
+=head2 parse [ data => $data, ] [ filename => $file, ]
 
 Parse a .ics file or string containing one, and populate C<$self> with
 its contents.
 
 Should only be called once on a given object, and will be automatically
 called by C<new> if you provide arguments to C<new>.
+
+Returns C<$self> on success.
+Returns a false value upon failure to open or parse the file or data; this false
+value is a L<Class::ReturnValue> object and can be queried as to its 
+C<error_message>.
 
 =cut
 
@@ -102,29 +125,57 @@ sub parse {
         @_
     );
 
-    return unless defined $args{filename} or defined $args{data};
+    unless (defined $args{filename} or defined $args{data}) {
+        return $self->_error("parse called with no filename or data specified");
+    } 
 
     my @lines;
 
     # open the file (checking as we go, like good little Perl mongers)
     if ( defined $args{filename} ) {
-        open my $fh, '<', $args{filename} or return;
+        open my $fh, '<', $args{filename} or 
+            return $self->_error("could not open '$args{filename}': $!");
         @lines = map {chomp; $_} <$fh>;
     } else {
         @lines = split /\n/, $args{data};
     }
 
-    # Parse the lines; Text::vFile doesn't want trailing newlines
-    my $cal = Text::vFile::asData->new->parse_lines(@lines);
+    @lines = $self->_vcal10_input_cleanup(@lines) if $self->vcal10;
 
-    return unless $cal and exists $cal->{objects};
+    # Parse the lines; Text::vFile doesn't want trailing newlines
+    my $cal = eval { Text::vFile::asData->new->parse_lines(@lines) };
+    return $self->_error("parse failure: $@") if $@;
+
+    return $self->_error("parse failure") unless $cal and exists $cal->{objects};
 
     # loop through all the vcards
     foreach my $object ( @{ $cal->{objects} } ) {
         $self->parse_object($object);
     }
-    return 1;
+
+    my $version = $self->property("version")->[0]->value;
+    unless (defined $version) {
+        return $self->_error("data does not specify a version property");
+    } 
+
+    if ($version eq '1.0' and not $self->vcal10 or
+        $version eq '2.0' and $self->vcal10) {
+        return $self->_error('application claims data is' .
+                    ($self->vcal10 ? '' : ' not') . ' vCal 1.0 but doc contains VERSION:' .
+                    $version);
+    } 
+    
+    return $self;
 }
+
+sub _error {
+    my $self = shift;
+    my $msg  = shift;
+    
+    my $ret = Class::ReturnValue->new;
+    $ret->as_error(errno => 1, message => $msg);
+    return $ret;
+} 
 
 =head2 ical_entry_type
 
@@ -176,6 +227,40 @@ sub optional_unique_properties {
     );
 }
 
+
+# In quoted-printable sections, convert from vcal10 "=\n" line endings to
+# ical20 "\n ".
+sub _vcal10_input_cleanup {
+    my $self = shift;
+    my @in_lines = @_;
+
+    my @out_lines;
+
+    my $in_qp = 0;
+    LINE: while (@in_lines) {
+        my $line = shift @in_lines;
+
+        if (not $in_qp and $line =~ /^[^:]+;ENCODING=QUOTED-PRINTABLE/i) {
+            $in_qp = 1;
+        } 
+
+        unless ($in_qp) {
+            push @out_lines, $line;
+            next LINE;
+        } 
+
+        if ($line =~ s/=$//) {
+            push @out_lines, $line;
+            $in_lines[0] = ' ' . $in_lines[0] if @in_lines;
+        } else {
+            push @out_lines, $line;
+            $in_qp = 0;
+        } 
+    }
+
+    return @out_lines;
+} 
+
 =head1 CONFIGURATION AND ENVIRONMENT
 
 L<Data::ICal> requires no configuration files or environment variables.
@@ -206,8 +291,7 @@ general or allowed on the particular property.
 L<Data::ICal> does not check to see if nested entries are nested properly (alarms in
 todos and events only, everything else in calendars only).
 
-L<Data::ICal> has no automatic support for converting binary data to the appropriate
-encoding and setting the corresponding parameters.
+The only property encoding supported by L<Data::ICal> is quoted printable.
 
 There is no L<Data::ICal::Entry::Alarm> base class.
 
