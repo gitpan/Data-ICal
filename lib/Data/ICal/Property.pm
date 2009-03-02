@@ -125,7 +125,7 @@ the raw value.
 sub decoded_value {
     my $self = shift;
     my $value = $self->value;
-    my $encoding = uc $self->parameters->{'ENCODING'};
+    my $encoding = uc($self->parameters->{'ENCODING'}||"");
 
     if ($ENCODINGS{$encoding}) {
         return $ENCODINGS{$encoding}{'decode'}->($value);
@@ -215,7 +215,7 @@ sub _value_as_string {
     
     unless ($self->vcal10) {
         $value =~ s/\\/\\/gs;
-        $value =~ s/\Q;/\\;/gs unless lc($key) eq 'rrule';
+        $value =~ s/;/\\;/gs unless lc($key) eq 'rrule';
         $value =~ s/,/\\,/gs unless lc($key) eq 'rrule';
         $value =~ s/\n/\\n/gs;
         $value =~ s/\\N/\\N/gs;
@@ -299,7 +299,7 @@ sub _fold {
     my $string = shift;
 
     my $quoted_printable = $self->vcal10 && 
-        uc $self->parameters->{'ENCODING'} eq 'QUOTED-PRINTABLE';
+        uc($self->parameters->{'ENCODING'}||'') eq 'QUOTED-PRINTABLE';
 
     # We can't just use a s//g, because we need to include the added space/= and
     # first character of the next line in the count for the next line.

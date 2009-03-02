@@ -8,7 +8,7 @@ use Class::ReturnValue;
 
 use Text::vFile::asData;
 
-our $VERSION = '0.13';
+our $VERSION = '0.15';
 
 use Carp;
 
@@ -153,7 +153,8 @@ sub parse {
         $self->parse_object($object);
     }
 
-    my $version = $self->property("version")->[0]->value;
+    my $version_ref = $self->property("version");
+    my $version = $version_ref ? $version_ref->[0]->value : undef;
     unless (defined $version) {
         return $self->_error("data does not specify a version property");
     } 
