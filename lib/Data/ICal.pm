@@ -5,17 +5,15 @@ package Data::ICal;
 use base qw/Data::ICal::Entry/;
 
 use Class::ReturnValue;
-
 use Text::vFile::asData;
 
-our $VERSION = '0.15_01';
+our $VERSION = '0.15_02';
 
 use Carp;
 
 =head1 NAME
 
 Data::ICal - Generates iCalendar (RFC 2445) calendar files
-
 
 =head1 SYNOPSIS
 
@@ -29,15 +27,11 @@ Data::ICal - Generates iCalendar (RFC 2445) calendar files
     );
 
     # ... or
-
     $calendar = Data::ICal->new(filename => 'foo.ics'); # parse existing file
-    $calendar = Data::ICal->new(data => 'BEGIN:VCALENDAR...'); # parse existing file
-
-
+    $calendar = Data::ICal->new(data => 'BEGIN:VCALENDAR...'); # parse from scalar
     $calendar->add_entry($vtodo);
-
     print $calendar->as_string;
-   
+
 =head1 DESCRIPTION
 
 A L<Data::ICal> object represents a C<VCALENDAR> object as defined in the
@@ -88,15 +82,16 @@ sub new {
         @_
     );
 
-    $self->vcal10($args{vcal10});
+    $self->vcal10( $args{vcal10} );
 
-    if (defined $args{filename} or defined $args{data}) {
+    if ( defined $args{filename} or defined $args{data} ) {
+
         # might return a Class::ReturnValue if parsing fails
         return $self->parse(%args);
     } else {
         $self->add_properties(
-            version => ($self->vcal10 ? '1.0' : '2.0'),
-            prodid  => $self->product_id,
+            version => ( $self->vcal10 ? '1.0' : '2.0' ),
+            prodid => $self->product_id,
         );
         return $self;
     }
@@ -104,15 +99,15 @@ sub new {
 
 =head2 parse [ data => $data, ] [ filename => $file, ]
 
-Parse a .ics file or string containing one, and populate C<$self> with
-its contents.
+Parse a C<.ics> file or string containing one, and populate C<$self>
+with its contents.
 
 Should only be called once on a given object, and will be automatically
 called by C<new> if you provide arguments to C<new>.
 
-Returns C<$self> on success.
-Returns a false value upon failure to open or parse the file or data; this false
-value is a L<Class::ReturnValue> object and can be queried as to its 
+Returns C<$self> on success.  Returns a false value upon failure to
+open or parse the file or data; this false value is a
+L<Class::ReturnValue> object and can be queried as to its
 C<error_message>.
 
 =cut
@@ -125,17 +120,18 @@ sub parse {
         @_
     );
 
-    unless (defined $args{filename} or defined $args{data}) {
-        return $self->_error("parse called with no filename or data specified");
-    } 
+    unless ( defined $args{filename} or defined $args{data} ) {
+        return $self->_error(
+            "parse called with no filename or data specified");
+    }
 
     my @lines;
 
     # open the file (checking as we go, like good little Perl mongers)
     if ( defined $args{filename} ) {
-        open my $fh, '<', $args{filename} or 
-            return $self->_error("could not open '$args{filename}': $!");
-        @lines = map {chomp; $_} <$fh>;
+        open my $fh, '<', $args{filename}
+            or return $self->_error("could not open '$args{filename}': $!");
+        @lines = map { chomp; $_ } <$fh>;
     } else {
         @lines = split /\r?\n/, $args{data};
     }
@@ -146,7 +142,8 @@ sub parse {
     my $cal = eval { Text::vFile::asData->new->parse_lines(@lines) };
     return $self->_error("parse failure: $@") if $@;
 
-    return $self->_error("parse failure") unless $cal and exists $cal->{objects};
+    return $self->_error("parse failure")
+        unless $cal and exists $cal->{objects};
 
     # loop through all the vcards
     foreach my $object ( @{ $cal->{objects} } ) {
@@ -155,28 +152,30 @@ sub parse {
 
     my $version_ref = $self->property("version");
     my $version = $version_ref ? $version_ref->[0]->value : undef;
-    unless (defined $version) {
+    unless ( defined $version ) {
         return $self->_error("data does not specify a version property");
-    } 
+    }
 
-    if ($version eq '1.0' and not $self->vcal10 or
-        $version eq '2.0' and $self->vcal10) {
-        return $self->_error('application claims data is' .
-                    ($self->vcal10 ? '' : ' not') . ' vCal 1.0 but doc contains VERSION:' .
-                    $version);
-    } 
-    
+    if (   $version eq '1.0' and not $self->vcal10
+        or $version eq '2.0' and $self->vcal10 )
+    {
+        return $self->_error( 'application claims data is'
+                . ( $self->vcal10 ? '' : ' not' )
+                . ' vCal 1.0 but doc contains VERSION:'
+                . $version );
+    }
+
     return $self;
 }
 
 sub _error {
     my $self = shift;
     my $msg  = shift;
-    
+
     my $ret = Class::ReturnValue->new;
-    $ret->as_error(errno => 1, message => $msg);
+    $ret->as_error( errno => 1, message => $msg );
     return $ret;
-} 
+}
 
 =head2 ical_entry_type
 
@@ -228,89 +227,79 @@ sub optional_unique_properties {
     );
 }
 
-
 # In quoted-printable sections, convert from vcal10 "=\n" line endings to
 # ical20 "\n ".
 sub _vcal10_input_cleanup {
-    my $self = shift;
+    my $self     = shift;
     my @in_lines = @_;
 
     my @out_lines;
 
     my $in_qp = 0;
-    LINE: while (@in_lines) {
+LINE: while (@in_lines) {
         my $line = shift @in_lines;
 
-        if (not $in_qp and $line =~ /^[^:]+;ENCODING=QUOTED-PRINTABLE/i) {
+        if ( not $in_qp and $line =~ /^[^:]+;ENCODING=QUOTED-PRINTABLE/i ) {
             $in_qp = 1;
-        } 
+        }
 
         unless ($in_qp) {
             push @out_lines, $line;
             next LINE;
-        } 
+        }
 
-        if ($line =~ s/=$//) {
+        if ( $line =~ s/=$// ) {
             push @out_lines, $line;
             $in_lines[0] = ' ' . $in_lines[0] if @in_lines;
         } else {
             push @out_lines, $line;
             $in_qp = 0;
-        } 
+        }
     }
 
     return @out_lines;
-} 
-
-=head1 CONFIGURATION AND ENVIRONMENT
-
-L<Data::ICal> requires no configuration files or environment variables.
-
+}
 
 =head1 DEPENDENCIES
 
-L<Data::ICal> requires L<Class::Accessor>.
-
-
-=head1 INCOMPATIBILITIES
-
-None reported.
-
+L<Data::ICal> requires L<Class::Accessor>, L<Text::vFile::asData>,
+L<MIME::QuotedPrint>, and L<Class::ReturnValue>.
 
 =head1 BUGS AND LIMITATIONS
 
-L<Data::ICal> does not support time zone daylight or standard entries, so time zone
-components are basically useless.
+L<Data::ICal> does not support time zone daylight or standard entries,
+so time zone components are basically useless.
 
-While L<Data::ICal> tries to check which properties are required and repeatable, this
-only works in simple cases; it does not check for properties that must either both exist
-or both not exist, or for mutually exclusive properties.
+While L<Data::ICal> tries to check which properties are required and
+repeatable, this only works in simple cases; it does not check for
+properties that must either both exist or both not exist, or for
+mutually exclusive properties.
 
-L<Data::ICal> does not check to see if property parameter names are known in
-general or allowed on the particular property.
+L<Data::ICal> does not check to see if property parameter names are
+known in general or allowed on the particular property.
 
-L<Data::ICal> does not check to see if nested entries are nested properly (alarms in
-todos and events only, everything else in calendars only).
+L<Data::ICal> does not check to see if nested entries are nested
+properly (alarms in todos and events only, everything else in
+calendars only).
 
-The only property encoding supported by L<Data::ICal> is quoted printable.
+The only property encoding supported by L<Data::ICal> is quoted
+printable.
 
 There is no L<Data::ICal::Entry::Alarm> base class.
 
-No bugs have been reported.
-
 Please report any bugs or feature requests to
-C<bug-data-ical-generator@rt.cpan.org>, or through the web interface at
+C<bug-data-ical@rt.cpan.org>, or through the web interface at
 L<http://rt.cpan.org>.
 
 
 =head1 AUTHOR
 
-Jesse Vincent  C<< <jesse@bestpractical.com> >> with David Glasser and Simon Wistow
-
+Jesse Vincent C<< <jesse@bestpractical.com> >> with David Glasser,
+Simon Wistow, and Alex Vandiver
 
 =head1 LICENCE AND COPYRIGHT
 
-Copyright (c) 2005, Best Practical Solutions, LLC.  All rights reserved.
+Copyright (c) 2005 - 2009, Best Practical Solutions, LLC.  All rights reserved.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself. See L<perlartistic>.
